@@ -3,8 +3,8 @@
 #include <max6675.h>
 #include <PID_v1.h>
 
-//#define SIMULATION
-//#define SERIAL_GRAPH
+#define SIMULATION
+#define SERIAL_GRAPH
 
 // Display
 #define TFT_CS 10
@@ -49,7 +49,7 @@ double pid_input = 0; // we will set this to tc_average_reading
 double pid_output = 0;
 double pid_setpoint = 0;
 unsigned long window_start_time = 0;
-PID pid(&tc_average_reading, &pid_output, &pid_setpoint, kP, kI, kD, DIRECT);
+PID pid(&pid_input, &pid_output, &pid_setpoint, kP, kI, kD, DIRECT);
 
 // State
 bool espresso_mode = true;
@@ -75,7 +75,10 @@ void updateEspressoModeDisplay();
 void setup()
 {
   Serial.begin(9600);
-  // Serial.println("temp,power,target");
+  #ifdef SERIAL_GRAPH
+  delay(100);
+  Serial.println("temp,power,target");
+  #endif
 
   pinMode(ESPRESSO_MODE_BUTTON_PIN, INPUT);
   pinMode(RELAY_PIN, OUTPUT);
@@ -118,7 +121,7 @@ void loop()
 void readThermocoupleTemperature()
 {
   // Don't read from the thermocouple too often (it will lock up)
-  if (tc_last_read_time + TC_DELAY_BETWEEN_READS > millis())
+  if (tc_last_read_time + TC_DELAY_BETWEEN_READS > time_now)
   {
     return;
   }
@@ -137,10 +140,13 @@ void readThermocoupleTemperature()
 
 void updatePIDOutput()
 {
-  if (pid.Compute())
+  if (time_now - window_start_time >= WINDOW_SIZE)
   {
-    // PID sample time matches window size, when Compute() is successful begin a new window
+    // Start new window
     window_start_time = time_now;
+
+    // Force PID to re-compute
+    pid.Compute(true);
 
     // Clamp PID output to a minimum to ensure SSR doesnt cycle on->off too quickly
     if (pid_output > 0 && pid_output < RELAY_MINIMUM_CYCLE_TIME)
@@ -158,13 +164,13 @@ void updateRelayState()
 
     #ifdef SIMULATION
     pid_input += ((0.9 + (random(3) / 10.0)) * loop_delta / 1000.0);
-#endif
+    #endif
   }
   else
   {
     setRelay(false);
 
-    #ifdef SIMULATION
+#ifdef SIMULATION
     pid_input += (-0.1 * loop_delta / 1000.0);
     if (pid_input < 22.0) {
       pid_input = 22.0;  // minimum temp

@@ -55,12 +55,12 @@ PID::PID(double* Input, double* Output, double* Setpoint,
  *   pid Output needs to be computed.  returns true when the output is computed,
  *   false when nothing has been done.
  **********************************************************************************/
-bool PID::Compute()
+bool PID::Compute(boolean IgnoreTime)
 {
    if(!inAuto) return false;
    unsigned long now = millis();
    unsigned long timeChange = (now - lastTime);
-   if(timeChange>=SampleTime)
+   if (!IgnoreTime || timeChange >= SampleTime)
    {
       /*Compute all the working error variables*/
       double input = *myInput;
@@ -125,7 +125,7 @@ void PID::SetTunings(double Kp, double Ki, double Kd, int POn)
  * Set Tunings using the last-rembered POn setting
  ******************************************************************************/
 void PID::SetTunings(double Kp, double Ki, double Kd){
-    SetTunings(Kp, Ki, Kd, pOn); 
+    SetTunings(Kp, Ki, Kd, pOn);
 }
 
 /* SetSampleTime(...) *********************************************************
