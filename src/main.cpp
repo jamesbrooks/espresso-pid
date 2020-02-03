@@ -12,9 +12,9 @@
 #define TFT_DC 8
 
 // Thermocouple
-#define TC_CLK 4
-#define TC_CS 5
-#define TC_MISO 6
+#define TC_CLK A1//4
+#define TC_CS A2//5
+#define TC_MISO A3//6
 #define TC_DELAY_BETWEEN_READS 250
 #define TC_NUM_READINGS 4
 
@@ -31,7 +31,7 @@
 #define ESPRESSO_MODE_COLOR 0x02B3
 #define STEAM_MODE_COLOR 0xC011
 #define TARGET_TEMP_ESPRRESSO 93
-#define TARGET_TEMP_STEAM 93
+#define TARGET_TEMP_STEAM 125
 
 // Display
 Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
@@ -53,7 +53,6 @@ PID pid(&pid_input, &pid_output, &pid_setpoint, kP, kI, kD, DIRECT);
 
 // State
 bool espresso_mode = true;
-bool last_espresso_mode_button_state = false;
 
 // Loop time tracking
 unsigned long time_now = 0;
@@ -67,10 +66,10 @@ void readThermocoupleTemperature();
 void updatePIDOutput();
 void updateRelayState();
 void setRelay(bool enabled);
-
 void updateEspressoMode();
 void updateDisplay();
 void updateEspressoModeDisplay();
+void emergencyHalt();
 
 void setup()
 {
@@ -125,9 +124,16 @@ void readThermocoupleTemperature()
     return;
   }
 
+  double current_reading = thermocouple.readCelsius();
+  if (isnan(current_reading) || current_reading == 0 || current_reading > 170)
+  {
+    emergencyHalt();
+  }
+  Serial.println(current_reading);
+
   tc_last_read_time = time_now;
   tc_readings_total -= tc_readings[tc_reading_index];
-  tc_readings[tc_reading_index] = thermocouple.readCelsius();
+  tc_readings[tc_reading_index] = current_reading;
   tc_readings_total += tc_readings[tc_reading_index];
   tc_reading_index = (tc_reading_index + 1) % TC_NUM_READINGS;
   tc_average_reading = tc_readings_total / TC_NUM_READINGS;
@@ -169,7 +175,7 @@ void updateRelayState()
   {
     setRelay(false);
 
-#ifdef SIMULATION
+    #ifdef SIMULATION
     pid_input += (-0.1 * loop_delta / 1000.0);
     if (pid_input < 22.0) {
       pid_input = 22.0;  // minimum temp
@@ -205,12 +211,12 @@ void setRelay(bool enabled)
 
 void updateEspressoMode()
 {
-  bool espresso_mode_button_state = digitalRead(ESPRESSO_MODE_BUTTON_PIN) == HIGH;
+  bool espresso_mode_button_state = digitalRead(ESPRESSO_MODE_BUTTON_PIN) == LOW;
 
-  if (espresso_mode_button_state && !last_espresso_mode_button_state)
+  if (espresso_mode_button_state != espresso_mode)
   {
     // Toggle between espresso and steam modes
-    espresso_mode = !espresso_mode;
+    espresso_mode = espresso_mode_button_state;
     pid_setpoint = espresso_mode ? TARGET_TEMP_ESPRRESSO : TARGET_TEMP_STEAM;
 
     updateEspressoModeDisplay();
@@ -220,8 +226,6 @@ void updateEspressoMode()
     pid_input -= 20.0;
     #endif
   }
-
-  last_espresso_mode_button_state = espresso_mode_button_state;
 }
 
 void updateEspressoModeDisplay()
@@ -262,4 +266,12 @@ void updateDisplay()
 
   dtostrf(pid_input, 4, 1, temp_str);
   tft.print(temp_str);
+}
+
+void emergencyHalt()
+{
+  return;
+  setRelay(false);
+  tft.fillRect(0, 0, 128, 128, ST7735_RED);
+  while(1);
 }
