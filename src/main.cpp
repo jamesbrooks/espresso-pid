@@ -3,8 +3,8 @@
 #include <max6675.h>
 #include <PID_v1.h>
 
-#define SIMULATION
-#define SERIAL_GRAPH
+//#define SIMULATION
+//#define SERIAL_GRAPH
 
 // Display
 #define TFT_CS 10
@@ -16,7 +16,7 @@
 #define TC_CS 5
 #define TC_MISO 6
 #define TC_DELAY_BETWEEN_READS 250
-#define TC_NUM_READINGS 8
+#define TC_NUM_READINGS 4
 
 // PID
 #define kP 800
@@ -94,7 +94,6 @@ void setup()
   pid.SetOutputLimits(0, WINDOW_SIZE);
   pid.SetSampleTime(WINDOW_SIZE);
   window_start_time = millis();
-  tc_average_reading = 22.0;  // room temp?
 
   // Clear recent temps (for averaging)
   for (int reading = 0; reading < TC_NUM_READINGS; reading++)
@@ -129,7 +128,7 @@ void readThermocoupleTemperature()
   tc_last_read_time = time_now;
   tc_readings_total -= tc_readings[tc_reading_index];
   tc_readings[tc_reading_index] = thermocouple.readCelsius();
-  tc_readings_total -= tc_readings[tc_reading_index];
+  tc_readings_total += tc_readings[tc_reading_index];
   tc_reading_index = (tc_reading_index + 1) % TC_NUM_READINGS;
   tc_average_reading = tc_readings_total / TC_NUM_READINGS;
 
