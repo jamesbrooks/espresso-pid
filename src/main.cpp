@@ -1,3 +1,4 @@
+#include <EEPROM.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7735.h>
 #include <max6675.h>
@@ -7,14 +8,14 @@
 //#define SERIAL_GRAPH
 
 // Display
-#define TFT_CS 10
+#define TFT_CS 8
 #define TFT_RST 9
-#define TFT_DC 8
+#define TFT_DC 10
 
 // Thermocouple
-#define TC_CLK A1//4
-#define TC_CS A2//5
-#define TC_MISO A3//6
+#define TC_CLK 7
+#define TC_CS 6
+#define TC_MISO 5
 #define TC_DELAY_BETWEEN_READS 250
 #define TC_NUM_READINGS 4
 
@@ -26,12 +27,12 @@
 
 // Misc
 #define ESPRESSO_MODE_BUTTON_PIN 2
-#define RELAY_PIN A5
+#define DECREASE_TEMPERATURE_BUTTON_PIN 3
+#define INCREASE_TEMPERATURE_BUTTON_PIN 4
+#define RELAY_PIN A1
 #define RELAY_MINIMUM_CYCLE_TIME 20 // milliseconds
 #define ESPRESSO_MODE_COLOR 0x02B3
 #define STEAM_MODE_COLOR 0xC011
-#define TARGET_TEMP_ESPRRESSO 93
-#define TARGET_TEMP_STEAM 125
 
 // Display
 Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
@@ -53,10 +54,17 @@ PID pid(&pid_input, &pid_output, &pid_setpoint, kP, kI, kD, DIRECT);
 
 // State
 bool espresso_mode = true;
+byte target_temp_espresso = 0;
+byte target_temp_steam = 0;
+unsigned long target_temp_last_checked;
 
 // Loop time tracking
 unsigned long time_now = 0;
 unsigned long loop_delta = 0;
+
+// EEPROM addresses
+#define EEPROM_ADDR_TARGET_TEMP_ESPRESSO 0
+#define EEPROM_ADDR_TARGET_TEMP_STEAM 1
 
 // Misc
 char temp_str[100];  // output formatting
@@ -67,6 +75,7 @@ void updatePIDOutput();
 void updateRelayState();
 void setRelay(bool enabled);
 void updateEspressoMode();
+void updateTemperatureTarget();
 void updateDisplay();
 void updateEspressoModeDisplay();
 void emergencyHalt();
@@ -80,6 +89,8 @@ void setup()
   #endif
 
   pinMode(ESPRESSO_MODE_BUTTON_PIN, INPUT);
+  pinMode(DECREASE_TEMPERATURE_BUTTON_PIN, INPUT);
+  pinMode(INCREASE_TEMPERATURE_BUTTON_PIN, INPUT);
   pinMode(RELAY_PIN, OUTPUT);
 
   // Init display
@@ -87,8 +98,16 @@ void setup()
   tft.fillScreen(ST7735_BLACK);
   tft.setTextWrap(false);
 
+  // Write EEPROM defaults
+  //EEPROM.update(EEPROM_ADDR_TARGET_TEMP_ESPRESSO, 93);
+  //EEPROM.update(EEPROM_ADDR_TARGET_TEMP_STEAM, 125);
+
+  // Read EEPROM values
+  target_temp_espresso = EEPROM.read(EEPROM_ADDR_TARGET_TEMP_ESPRESSO);
+  target_temp_steam = EEPROM.read(EEPROM_ADDR_TARGET_TEMP_STEAM);
+
   // PID setup
-  pid_setpoint = espresso_mode ? TARGET_TEMP_ESPRRESSO : TARGET_TEMP_STEAM;
+  pid_setpoint = espresso_mode ? target_temp_espresso : target_temp_steam;
   pid.SetMode(AUTOMATIC);
   pid.SetOutputLimits(0, WINDOW_SIZE);
   pid.SetSampleTime(WINDOW_SIZE);
@@ -101,6 +120,8 @@ void setup()
   }
 
   updateEspressoModeDisplay();
+
+  target_temp_last_checked = millis();
 }
 
 void loop()
@@ -113,6 +134,7 @@ void loop()
   updatePIDOutput();
   updateRelayState();
   updateEspressoMode();
+  updateTemperatureTarget();
   updateDisplay();
 }
 
@@ -129,7 +151,6 @@ void readThermocoupleTemperature()
   {
     emergencyHalt();
   }
-  Serial.println(current_reading);
 
   tc_last_read_time = time_now;
   tc_readings_total -= tc_readings[tc_reading_index];
@@ -217,7 +238,7 @@ void updateEspressoMode()
   {
     // Toggle between espresso and steam modes
     espresso_mode = espresso_mode_button_state;
-    pid_setpoint = espresso_mode ? TARGET_TEMP_ESPRRESSO : TARGET_TEMP_STEAM;
+    pid_setpoint = espresso_mode ? target_temp_espresso : target_temp_steam;
 
     updateEspressoModeDisplay();
 
@@ -253,9 +274,48 @@ void updateEspressoModeDisplay()
   tft.setTextColor(0xffff);
   tft.setTextSize(1);
   tft.print(" Target: ");
-  dtostrf(pid_setpoint, (pid_setpoint < 100 ? 4 : 5), 1, temp_str);
-  tft.print(temp_str);
+  //dtostrf(pid_setpoint, (pid_setpoint < 100 ? 4 : 5), 1, temp_str);
+  tft.print((int)pid_setpoint);
   tft.print(" deg");
+}
+
+void updateTemperatureTarget()
+{
+  if (time_now < target_temp_last_checked + 100)
+  {
+    return;
+  }
+
+  target_temp_last_checked = time_now;
+
+  double adjustment = 0;
+  if (digitalRead(DECREASE_TEMPERATURE_BUTTON_PIN) == HIGH)
+  {
+    adjustment -= 1.0;
+  }
+  else
+  if (digitalRead(INCREASE_TEMPERATURE_BUTTON_PIN) == HIGH)
+  {
+    adjustment += 1.0;
+  }
+
+  if (adjustment != 0)
+  {
+    if (espresso_mode)
+    {
+      target_temp_espresso += adjustment;
+      pid_setpoint = target_temp_espresso;
+      EEPROM.update(EEPROM_ADDR_TARGET_TEMP_ESPRESSO, target_temp_espresso);
+    }
+    else
+    {
+      target_temp_steam += adjustment;
+      pid_setpoint = target_temp_steam;
+      EEPROM.update(EEPROM_ADDR_TARGET_TEMP_STEAM, target_temp_steam);
+    }
+
+    updateEspressoModeDisplay();
+  }
 }
 
 void updateDisplay()
@@ -270,7 +330,6 @@ void updateDisplay()
 
 void emergencyHalt()
 {
-  return;
   setRelay(false);
   tft.fillRect(0, 0, 128, 128, ST7735_RED);
   while(1);
