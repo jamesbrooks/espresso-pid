@@ -8,9 +8,9 @@
 //#define SERIAL_GRAPH
 
 // Display
-#define TFT_CS 8
+#define TFT_CS 10
 #define TFT_RST 9
-#define TFT_DC 10
+#define TFT_DC 8
 
 // Thermocouple
 #define TC_CLK 7
@@ -26,9 +26,9 @@
 #define WINDOW_SIZE 1000  // milliseconds
 
 // Misc
-#define ESPRESSO_MODE_BUTTON_PIN 2
+#define ESPRESSO_MODE_BUTTON_PIN 4
 #define DECREASE_TEMPERATURE_BUTTON_PIN 3
-#define INCREASE_TEMPERATURE_BUTTON_PIN 4
+#define INCREASE_TEMPERATURE_BUTTON_PIN 2
 #define RELAY_PIN A1
 #define RELAY_MINIMUM_CYCLE_TIME 20 // milliseconds
 #define ESPRESSO_MODE_COLOR 0x02B3
@@ -82,8 +82,8 @@ void emergencyHalt();
 
 void setup()
 {
-  Serial.begin(9600);
   #ifdef SERIAL_GRAPH
+  Serial.begin(9600);
   delay(100);
   Serial.println("temp,power,target");
   #endif
@@ -184,6 +184,13 @@ void updatePIDOutput()
 
 void updateRelayState()
 {
+  // Dirty fail safe checks
+  if (pid_input < 1 || pid_input > 140)
+  {
+    setRelay(false);
+    return;
+  }
+
   if (pid_output > time_now - window_start_time)
   {
     setRelay(true);
@@ -330,6 +337,7 @@ void updateDisplay()
 
 void emergencyHalt()
 {
+  return;
   setRelay(false);
   tft.fillRect(0, 0, 128, 128, ST7735_RED);
   while(1);
